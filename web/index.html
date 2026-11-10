@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="vi">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Besu · Hồ sơ tin cậy</title><link rel="stylesheet" href="/app.css"><script defer src="/app.js"></script></head>
+<body>
+<header><a class="brand" href="/">B<span>Besu / Hồ sơ tin cậy</span></a><span class="badge">LOCAL DEMO · DỮ LIỆU GIẢ</span><a href="http://localhost:8081" target="_blank" rel="noreferrer">Blockscout ↗</a></header>
+<main>
+<section class="intro"><div><p class="eyebrow">CONSORTIUM CREDENTIALS</p><h1>Một hồ sơ.<br>Nguồn xác nhận rõ ràng.</h1><p>Phát hành, chia sẻ và xác minh bằng cấp, chứng chỉ,<br class="desktop"> quá trình làm việc trên mạng Besu của bạn.</p></div><div class="intro-note"><span>01 — 04</span><p>Đơn vị cấp xác nhận.<br>Cá nhân quyết định chia sẻ.<br>Doanh nghiệp kiểm chứng.</p></div></section>
+<section class="login panel"><div><h2>Không gian trình diễn</h2><p>Token của người vận hành cho phép chuyển vai trò demo. Khóa thử nghiệm được ký tại máy chủ local.</p></div>
+<form id="login-form"><label>Token người vận hành<input id="operator-token" type="password" autocomplete="off" required placeholder="Dán token từ file operator-token"></label><label>Vai trò<select id="actor-select"></select></label><button type="submit">Vào không gian →</button></form>
+<p class="hint">Lấy token bằng: <code>docker exec besu-system cat /data/network/business-demo/operator-token</code>. Không dùng dữ liệu hoặc khóa thật.</p></section>
+<div id="message" role="status" aria-live="polite">Kết nối một vai trò để bắt đầu.</div>
+<button id="retry-action" class="secondary" type="button" hidden>Tiếp tục thao tác vừa gửi</button>
+<section id="workspace" hidden>
+<div class="workspace-heading"><div><p class="eyebrow">VAI TRÒ HIỆN TẠI</p><h2 id="actor-name"></h2></div><button id="refresh" class="secondary">↻ Cập nhật</button></div>
+<div class="stats"><article><span>Block đang đọc</span><strong id="block">—</strong><small>Trạng thái trực tiếp từ Besu</small></article><article><span>Hồ sơ liên quan</span><strong id="document-count">—</strong><small>Theo vai trò đang chọn</small></article><article><span>Sự kiện đã đồng bộ</span><strong id="event-count">—</strong><small id="index-state">Chờ indexer</small></article></div>
+<nav class="journey" aria-label="Các bước demo"><span><b>01</b> Tổ chức phát hành</span><span><b>02</b> Cá nhân chia sẻ</span><span><b>03</b> Cá nhân ký challenge</span><span><b>04</b> Doanh nghiệp xác minh</span></nav>
+<div class="columns">
+<section class="panel"><div class="section-top"><h2>Hồ sơ trên chain</h2><span class="subtle">Không hiển thị payload khi chưa được phép</span></div><div id="documents" class="cards"></div></section>
+<section class="panel actions">
+<form id="issue-form" hidden><p class="eyebrow">01 / PHÁT HÀNH</p><h2>Cấp một hồ sơ</h2><label>Người nhận<select id="issue-holder"></select></label><label>Nội dung mẫu<input id="issue-title" maxlength="160" required placeholder="Ví dụ: Cử nhân Công nghệ thông tin"></label><label>Hết hạn sau số phút<input id="issue-minutes" type="number" min="0" max="525600" value="0"></label><p class="hint">0 = không đặt hạn. Loại hồ sơ được xác định theo quyền của tổ chức.</p><button type="submit">Ký và phát hành</button></form>
+<form id="grant-form" hidden><p class="eyebrow">02 / CHIA SẺ</p><h2>Cho phép doanh nghiệp xác minh</h2><p>Chọn các hồ sơ còn hiệu lực trong danh sách bên trái.</p><label>Bên nhận<select id="grant-grantee"></select></label><label>Thời hạn chia sẻ (phút)<input id="grant-minutes" type="number" min="1" max="10080" value="60" required></label><button type="submit">Ký consent và gửi lên chain</button></form>
+<form id="challenge-form" hidden><p class="eyebrow">04 / XÁC MINH</p><h2>Yêu cầu chứng minh chủ thể</h2><label>Consent được cấp<select id="verify-consent"></select></label><label>Hồ sơ cần xác minh<select id="verify-credential"></select></label><button type="submit">Tạo challenge cho chủ thể</button><p class="hint">Sau đó chuyển sang vai trò cá nhân để ký challenge, rồi quay lại doanh nghiệp để xác minh.</p></form>
+</section></div>
+<section class="panel"><div class="section-top"><h2>Quyền chia sẻ</h2><span class="subtle">Thu hồi ngăn những lần truy cập tiếp theo</span></div><div id="consents" class="cards"></div></section>
+<section class="panel"><div class="section-top"><h2>Challenge & bằng chứng chủ thể</h2><span class="subtle">Một lần sử dụng · Hết hạn sau 5 phút</span></div><div id="challenges" class="cards"></div></section>
+<section class="panel"><div class="section-top"><h2>Lịch sử xác minh</h2><span class="subtle">Kết quả tại thời điểm kiểm tra; không bảo đảm quyền truy cập hiện tại</span></div><div id="results" class="cards"></div><details><summary>Phản hồi thao tác gần nhất</summary><pre id="output">Chưa có thao tác.</pre></details></section>
+</section>
+<footer>Besu + Teku · 9 tổ chức · 3 cá nhân · Quản trị 3/5<br>Đây là mô phỏng trên một máy. Danh tính thực tế và tính đúng đắn của hồ sơ nguồn do tổ chức đối chiếu.</footer>
+</main></body></html>

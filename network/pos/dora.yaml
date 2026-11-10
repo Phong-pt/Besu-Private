@@ -1,0 +1,59 @@
+# Dora v1.25.0; paths are relative to network/pos inside the system container.
+logging:
+  outputLevel: info
+chain:
+  displayName: "Besu + Teku Local"
+server:
+  host: "127.0.0.1"
+  port: "8080"
+api:
+  enabled: true
+frontend:
+  enabled: true
+  siteName: "Besu Education Explorer"
+  siteSubtitle: "Local PoS testnet · NTQ · V · University C · Cert 1"
+  validatorNamesYaml: "validator-names.yaml"
+  showSubmitDeposit: false
+  showSubmitElRequests: false
+  showPeerDASInfos: false
+  disableDasGuardianCheck: true
+beaconapi:
+  localCacheSize: 32
+  endpoints:
+    - name: NTQ
+      url: "http://127.0.0.1:5051"
+    - name: V
+      url: "http://127.0.0.1:5052"
+    - name: University C
+      url: "http://127.0.0.1:5053"
+    - name: Cert 1
+      url: "http://127.0.0.1:5054"
+executionapi:
+  genesisConfig: ".local/genesis.json"
+  endpoints:
+    - name: NTQ
+      url: "http://127.0.0.1:8545"
+    - name: V
+      url: "http://127.0.0.1:8546"
+    - name: University C
+      url: "http://127.0.0.1:8547"
+    - name: Cert 1
+      url: "http://127.0.0.1:8548"
+indexer:
+  inMemoryEpochs: 3
+  maxParallelValidatorSetRequests: 1
+  syncEpochCooldown: 2
+executionIndexer:
+  enabled: false
+database:
+  engine: sqlite
+  sqlite:
+    file: ".local/dora/explorer.sqlite"
+blockDb:
+  engine: none
+rpcProxy:
+  enabled: false
+ensResolver:
+  enabled: false
+xatu:
+  enabled: false

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Local-only Besu + Teku PoS testnet, using binaries already in Downloads.
+"""Local-only Besu + Teku PoS testnet, using runtimes built into the container.
 
 python3 network/pos/manage.py start|status|stop
 No external RPC or downloads. Does not deploy application contracts.
@@ -9,9 +9,8 @@ Genesis and databases survive stop/start. No implicit reset or key replacement.
 Chain ID: 20261104. Prague/Electra, minimal preset (6-second slots, 8 slots/epoch).
 Local ports: execution RPC 8545-8548, authenticated Engine API 8551-8554,
 beacon REST 5051-5054. This network is not Sepolia, Hoodi or Ethereum mainnet.
-Source defaults: Downloads/besu-26.10.2 and Downloads/teku/build/install/teku.
-Override BESU_POS_HOME, TEKU_POS_HOME, TEKU_SOURCE_HOME, BESU_POS_JAVA_HOME
-before first initialization if those local installations are moved.
+Runtime locations can be overridden with BESU_POS_HOME, TEKU_POS_HOME,
+TEKU_SOURCE_HOME and BESU_POS_JAVA_HOME.
 """
 
 import argparse
@@ -32,15 +31,15 @@ import urllib.request
 
 
 ROOT = Path(__file__).resolve().parent
-STATE = ROOT / ".local"
+STATE = Path(os.environ.get("BESU_STATE_DIR", str(ROOT / ".local")))
 NAMES = ("ntq", "v", "university-c", "cert-1")
 CHAIN_ID = 20261104
 VALIDATORS = 64
 DEPOSIT_CONTRACT = "0x00000000219ab540356cbb839cbe05303d7705fa"
-JAVA = Path(os.environ.get("BESU_POS_JAVA_HOME", "/usr/lib/jvm/jdk-25.0.5.0.3-oracle-x64"))
-BESU_HOME = Path(os.environ.get("BESU_POS_HOME", str(Path.home() / "Downloads/besu-26.10.2")))
-TEKU_HOME = Path(os.environ.get("TEKU_POS_HOME", str(Path.home() / "Downloads/teku/build/install/teku")))
-TEKU_SOURCE = Path(os.environ.get("TEKU_SOURCE_HOME", str(Path.home() / "Downloads/teku")))
+JAVA = Path(os.environ.get("BESU_POS_JAVA_HOME", "/opt/java"))
+BESU_HOME = Path(os.environ.get("BESU_POS_HOME", "/opt/besu"))
+TEKU_HOME = Path(os.environ.get("TEKU_POS_HOME", "/opt/teku"))
+TEKU_SOURCE = Path(os.environ.get("TEKU_SOURCE_HOME", "/opt/teku-source"))
 BESU = BESU_HOME / "bin/besu"
 TEKU = TEKU_HOME / "bin/teku"
 HTTP = urllib.request.build_opener(urllib.request.ProxyHandler({}))
@@ -153,6 +152,13 @@ def validate_ports():
                         raise RuntimeError(f"Local port {port} is in use. Stop the previous network before starting PoS.") from error
 
 
+def runtime_identity(version):
+    # Relocation may change the JDK vendor, but never the client revision,
+    # operating-system architecture or Java major version.
+    match = re.fullmatch(r"(besu|teku)/(v[^/]+)/([^/]+)/[^/]*java-(\d+)", version)
+    return match.groups() if match else None
+
+
 def initialize():
     for executable in (JAVA / "bin/java", BESU, TEKU):
         if not executable.is_file():
@@ -162,7 +168,14 @@ def initialize():
     if metadata.exists():
         config = json.loads(metadata.read_text())
         if runtime != config["runtime"]:
-            raise RuntimeError("Client binaries/runtime differ from this network's recorded versions; review the upgrade before restarting.")
+            compatible = all(runtime_identity(runtime[k]) is not None and
+                             runtime_identity(runtime[k]) == runtime_identity(config["runtime"][k])
+                             for k in ("besu", "teku"))
+            if os.environ.get("BESU_ALLOW_RUNTIME_RELOCATION") == "1" and compatible:
+                config["runtime"] = runtime
+                write_json(metadata, config)
+            else:
+                raise RuntimeError("Client binaries/runtime differ from this network's recorded versions; review the upgrade before restarting.")
         required = [STATE / "genesis.json", STATE / "consensus.yaml", STATE / "static-nodes.json", STATE / "accounts/deployer/key"]
         required += [STATE / f"besu-{org}/key" for org in NAMES]
         required += [STATE / f"jwt-{org}.hex" for org in NAMES]
@@ -315,12 +328,17 @@ def start():
             "--p2p-discovery-enabled=false", "--Xp2p-quic-enabled=false", "--p2p-peer-lower-bound=1", "--p2p-peer-upper-bound=6",
             "--p2p-subscribe-all-subnets-enabled=true", "--rest-api-enabled=true", "--rest-api-interface=127.0.0.1",
             f"--rest-api-port={5051 + index}", "--rest-api-host-allowlist=localhost,127.0.0.1",
+            "--data-storage-mode=archive", "--data-storage-archive-frequency=8", "--reconstruct-historic-states=true",
             f"--validators-proposer-default-fee-recipient={config['deployer_address']}",
             f"--validators-graffiti=LOCAL-{org}",
             "--Xinterop-enabled=true", f"--Xinterop-genesis-time={config['genesis_time']}",
             f"--Xinterop-genesis-payload-header={STATE / 'payload-header.json'}", f"--Xinterop-number-of-validators={VALIDATORS}",
             f"--Xinterop-owned-validator-start-index={16 * index}", "--Xinterop-owned-validator-count=16",
             "--logging=INFO", "--log-destination=CONSOLE"]
+        # Dora needs historical beacon states. Reuse the original genesis SSZ
+        # when rebuilding archive states; never regenerate the existing chain.
+        if (STATE / "genesis.ssz").exists():
+            command.append(f"--genesis-state={STATE / 'genesis.ssz'}")
         if peers:
             command.append("--p2p-static-peers=" + ",".join(peers))
         launch(name, command)
@@ -370,9 +388,9 @@ def status():
         print(f"{org:<17} {el:<15} {cl:<15} {height:<8} {slot:<8} {finalized}")
 
 
-def stop():
+def stop(clients=("teku", "besu")):
     # Stop signers before execution clients; retain slashing-protection databases.
-    for client in ("teku", "besu"):
+    for client in clients:
         running = []
         for org in NAMES:
             name = f"{client}-{org}"
@@ -386,7 +404,7 @@ def stop():
         remaining = [name for name in running if process_record(name)]
         if remaining:
             raise RuntimeError(f"Still shutting down: {remaining}. No force kill was performed; run stop again after checking logs.")
-    print("PoS processes stopped. Genesis, keys, slashing protection and databases retained.")
+    print("Stopped " + ", ".join(clients) + ". Genesis, keys, slashing protection and databases retained.")
 
 
 def main():

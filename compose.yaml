@@ -1,0 +1,26 @@
+name: besu
+services:
+  system:
+    platform: linux/amd64
+    image: besu-system:local
+    build: .
+    container_name: besu-system
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 180s
+    ports:
+      - "127.0.0.1:3002:13002"
+      - "127.0.0.1:3000:13000"
+      - "127.0.0.1:8080:18080"
+      - "127.0.0.1:8081:18081"
+    volumes:
+      - data:/data
+    shm_size: 256m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+volumes:
+  data:
+    name: besu-system-data

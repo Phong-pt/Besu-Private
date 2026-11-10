@@ -1201,3 +1201,198 @@ Demo được coi là hoàn thành khi:
 
 > [!NOTE]
 > Cần đối chiếu tài liệu với phiên bản Besu được chọn trước khi triển khai.
+
+## 21. Tình trạng triển khai local: Besu, Teku, Dora và Blockscout
+
+Phần này ghi nhận cấu hình đã làm để thử trên một máy, bổ sung cho thiết kế consortium QBFT ở các phần trước. Hai mạng là hai môi trường riêng: mạng QBFT được cấu hình trong `network/`, còn mạng đang dùng với Dora và Blockscout là testnet PoS Besu + Teku trong `network/pos/`. Việc dùng PoS local giúp thử mô hình execution/consensus tương tự Ethereum; không biến mạng này thành Ethereum mainnet, Sepolia hay Hoodi, và không tự bảo đảm việc chuyển hệ thống lên mạng công khai.
+
+### 21.1. Mạng Besu + Teku local
+
+- Bốn cặp node Besu và Teku: `ntq`, `v`, `university-c`, `cert-1`. Mỗi Teku quản lý 16 validator interop, tổng cộng 64 validator; các khóa interop chỉ dùng để thử nghiệm, không dùng trên mạng công khai.
+- Chain ID `20261104`, cấu hình minimal, slot 6 giây, 8 slot/epoch; Prague/Electra kích hoạt từ genesis. Đây là mạng local độc lập.
+- Các cổng trên loopback: Besu JSON-RPC `8545–8548`, Engine API `8551–8554`, Beacon REST `5051–5054`, Besu P2P `30311–30314`, Teku P2P `9001–9004`. Engine API dùng JWT riêng cho từng cặp.
+- `network/pos/manage.py` quản lý khởi động, trạng thái và dừng. Cấu hình Besu ở `network/pos/besu.toml`. Script mặc định dùng Besu và Teku có sẵn trong Downloads và Java 25; các đường dẫn có thể thay bằng biến môi trường được nêu trong đầu script.
+- Dữ liệu chain, genesis, JWT, tài khoản triển khai và log nằm trong `network/pos/.local/`; thư mục này được Git bỏ qua. Dừng mạng không xóa dữ liệu. Teku được cấu hình archive để explorer đọc trạng thái lịch sử.
+
+```bash
+python3 network/pos/manage.py start
+python3 network/pos/manage.py status
+python3 network/pos/manage.py stop
+```
+
+### 21.2. Dora
+
+Dora v1.25.0 chạy tại `http://127.0.0.1:8080`, dùng Beacon API của bốn Teku và RPC của bốn Besu. Giao diện cho xem validator, slot, epoch, finality và các client; tên nhóm validator cấu hình ở `network/pos/validator-names.yaml`. `network/pos/dora.yaml` cấu hình Dora, `network/pos/explorer.py` quản lý tiến trình. Dữ liệu chỉ mục Dora dùng SQLite trong `.local/dora/`; đây không phải PostgreSQL nghiệp vụ.
+
+```bash
+python3 network/pos/explorer.py start
+python3 network/pos/explorer.py status
+python3 network/pos/explorer.py stop
+```
+
+Trước khi bật archive, một số state root cũ không được lưu chỉ mục; vì vậy lịch sử Dora ở một số epoch đầu chưa đầy đủ. Các validator interop và dữ liệu được hiển thị chỉ có ý nghĩa trong mạng test này.
+
+### 21.3. Blockscout
+
+Blockscout chạy tại `http://127.0.0.1:8081` để xem block, giao dịch, địa chỉ, mã nguồn và ABI smart contract; giao diện contract hỗ trợ đọc và kết nối ví để gửi giao dịch. `network/pos/blockscout/compose.yaml` cấu hình backend Blockscout 9.0.2, frontend, verifier, nginx và PostgreSQL 17 riêng cho chỉ mục explorer; frontend và verifier dùng image `latest`. `network/pos/blockscout/nginx.conf.template` cấu hình proxy. Dữ liệu PostgreSQL của Blockscout lưu trong Docker volume; mật khẩu và secret nằm trong `.local/blockscout/secrets.env`, không commit.
+
+```bash
+docker compose -p besu-blockscout -f network/pos/blockscout/compose.yaml up -d
+docker compose -p besu-blockscout -f network/pos/blockscout/compose.yaml ps
+docker compose -p besu-blockscout -f network/pos/blockscout/compose.yaml stop
+```
+
+Backend Blockscout hiện dùng host networking và lắng nghe `0.0.0.0:4000`; do đó có thể truy cập từ mạng khác tùy cấu hình máy và firewall. Chỉ nên sử dụng cấu hình này trong môi trường thử nghiệm được kiểm soát. RPC local cho ví là `http://127.0.0.1:8545`, chain ID `20261104`.
+
+### 21.4. Contract triển khai trên chain local hiện tại
+
+Các contract sau đã được biên dịch bằng Solidity 0.8.24, triển khai trên genesis local hiện tại và xác minh mã nguồn/ABI trên Blockscout. Địa chỉ gắn với chain hiện tại và có thể khác khi triển khai lại:
+
+| Contract | Địa chỉ local |
+|---|---|
+| ConsortiumGovernance | `0x7C02d6f7D2434C20Ed899bC9FE846AbE4910005c` |
+| SchemaRegistry | `0xF41E753504A21ca3eA1E6e70cC4C80e97e58e5D3` |
+| OrganizationRegistry | `0x8751173BB195B688583aca8D656C211653FFB467` |
+| SubjectRegistry | `0x9Dd029CEFb0a3c9360356D0231C91deC4520F020` |
+| CredentialRegistry | `0xdC23A3fCd2dC78aA3Da14e7C0bD5229C5E45A6Bb` |
+| ConsentRegistry | `0xA98806881d45BcFcB363B077ea5DbdFB54Fd10Ee` |
+
+`network/pos/deploy-contracts.cjs` biên dịch và triển khai các contract theo thứ tự phụ thuộc; `network/pos/verify-contracts.cjs` gửi mã nguồn và cấu hình biên dịch để Blockscout xác minh. Địa chỉ và ABI được lưu trong `.local/contracts-deployment.json`. Năm khóa hội đồng test độc lập nằm trong `.local/council-keys.json` và đã được cấp ETH test để trả phí. Không chia sẻ hoặc commit các khóa này; không dùng chúng cho mạng thực.
+
+### 21.5. Phạm vi và việc còn lại
+
+- Đã kiểm tra mạng tạo block/finality, Dora và các trang/API Blockscout hoạt động; sáu contract có ABI đã xác minh. Chưa nghiệm thu luồng phát hành, chia sẻ và xác minh hồ sơ nghiệp vụ.
+- PostgreSQL đang chạy theo cấu hình Blockscout chỉ phục vụ explorer. **Database PostgreSQL nghiệp vụ demo** đã được tạo và khởi chạy riêng; xem mục 21.6. Đây là dữ liệu giả, chưa đồng bộ blockchain.
+- Backend tra cứu trạng thái ở mục 21.7; bản demo nghiệp vụ có giao diện, kho bản mã local, indexer và các vai trò mô phỏng ở mục 21.8. Chưa hoàn thành bản production với danh tính độc lập, object storage/KMS và worker phân tán. Dora và Blockscout vẫn là công cụ quan sát kỹ thuật.
+- Không đưa dữ liệu cá nhân thật, secret hoặc khóa thật vào môi trường demo; không dựa vào chỉ mục explorer để ra quyết định cấp dữ liệu hoặc kết luận credential còn hiệu lực.
+
+
+### 21.6. PostgreSQL nghiệp vụ demo
+
+`database/schema.sql` tạo các bảng tổ chức, thành viên, lịch sử khóa issuer, chủ thể và liên kết khóa, schema credential, tham chiếu tài liệu, chỉ mục credential và consent, challenge, kết quả xác minh, operation, sự kiện chain đã xử lý, checkpoint indexer và audit log. Các ràng buộc gồm credential ID, idempotency key theo tổ chức, nonce challenge và định danh sự kiện chain. `database/seed.sql` tạo dữ liệu hoàn toàn giả: bốn tổ chức, hai chủ thể, ba credential và một consent. Các bảng lịch sử khóa và sự kiện có thể chưa có dữ liệu.
+
+`database/compose.yaml` chạy PostgreSQL 17 riêng, tên database và user `credentials_demo`, cổng `127.0.0.1:7433`. Mật khẩu được tạo trong `database/.env`, file này được Git bỏ qua. Volume `demo-db` lưu dữ liệu; script schema/seed chỉ chạy khi volume được khởi tạo lần đầu. Dừng container không xóa dữ liệu.
+
+```bash
+docker compose -p besu-credentials-demo -f database/compose.yaml up -d
+docker compose -p besu-credentials-demo -f database/compose.yaml ps
+docker compose -p besu-credentials-demo -f database/compose.yaml exec postgres psql -U credentials_demo -d credentials_demo
+docker compose -p besu-credentials-demo -f database/compose.yaml stop
+```
+
+Dữ liệu demo và các tham chiếu `demo://` chưa có tài liệu thật, chưa mã hóa, chưa liên kết với dữ liệu on-chain, chưa có indexer đồng bộ hoặc backend kiểm tra quyền. Trạng thái trong bảng chỉ là dữ liệu giả/chỉ mục; không dùng làm bằng chứng credential hay consent hợp lệ. Không đưa dữ liệu thật vào demo. Khởi tạo schema và số lượng bản ghi seed đã được kiểm tra; chưa kiểm thử luồng nghiệp vụ.
+
+### 21.7. Backend tra cứu trạng thái local
+
+`backend/server.cjs` cung cấp API chỉ đọc, lắng nghe tại `127.0.0.1:3000`. `backend/chain.cjs` dùng ethers đã có trong `network/pos/.local/contract-tools/node_modules/` và ABI/địa chỉ từ bản ghi triển khai local. Không cần cài thêm package cho bước này.
+
+`backend/database.cjs` chạy `psql` trong container PostgreSQL nghiệp vụ bằng Docker Compose. Adapter này dành cho demo local có Docker CLI và quyền truy cập Docker; không phải connection pool cho production. Truy vấn dùng biến psql được quote như SQL literal, transaction chỉ đọc, giới hạn thời gian và không trả thông tin cá nhân, tài liệu hoặc mật khẩu qua API.
+
+Các dịch vụ Besu và PostgreSQL cần đang chạy để có đầy đủ dữ liệu. Từ thư mục gốc dự án, tạo token tạm trong môi trường shell và chạy:
+
+```bash
+export API_TOKEN="$(node -e 'process.stdout.write(require("node:crypto").randomBytes(32).toString("hex"))')"
+node backend/server.cjs &
+API_PID=$!
+curl -H "Authorization: Bearer $API_TOKEN" http://127.0.0.1:3000/health
+curl -H "Authorization: Bearer $API_TOKEN" http://127.0.0.1:3000/credentials/demo-credential-a/status
+# Dừng backend sau khi sử dụng:
+kill "$API_PID"
+unset API_TOKEN API_PID
+```
+
+Token bắt buộc dài ít nhất 32 ký tự, không ghi vào source hay commit. Tất cả endpoint đều yêu cầu `Authorization: Bearer <token>`. Đây là token truy cập công cụ local, chưa phải đăng nhập/phân quyền issuer, holder hay verifier.
+
+| Endpoint | Hành vi |
+|---|---|
+| `GET /health` | Kiểm tra chain và PostgreSQL; HTTP 503 nếu một nguồn chưa sẵn sàng |
+| `GET /credentials/:id/status` | ID `bytes32` đọc trực tiếp contract; ID `demo-*` chỉ có dữ liệu giả và trả `INDETERMINATE` |
+
+Kết quả tách `lifecycleStatus` trên chain, `observedAt` và `index` PostgreSQL. `index.authoritative` luôn là `false`; không dùng chỉ mục thay thế RPC khi RPC lỗi. Không trả `VALID`: trạng thái `ISSUED` vẫn cần xác minh nội dung, chủ thể, consent và chính sách issuer. Hồ sơ không tồn tại trả `INDETERMINATE` với lý do riêng; lỗi RPC, sai chain, genesis hoặc chain quá cũ trả HTTP 503 và `INDETERMINATE`.
+
+Backend kiểm tra chain ID `20261104`, genesis theo bản ghi triển khai và bytecode tại địa chỉ contract. Các lần đọc contract dùng cùng block hash với `requireCanonical` (EIP-1898), rồi kiểm tra lại block hash trước khi trả. RPC phải hỗ trợ EIP-1898; nếu không hỗ trợ thì API không suy đoán trạng thái. Kết quả ghi rõ `finality: latest`, chưa phải chứng nhận finality và có thể thay đổi sau thời điểm đọc.
+
+Cấu hình tùy chọn: `API_PORT` (mặc định 3000), `BESU_RPC_URL` (mặc định `http://127.0.0.1:8545`), `CHAIN_MAX_AGE_SECONDS` (mặc định 120, tối đa 3600). Chain đang đồng bộ, block quá cũ hoặc thời gian block vượt đồng hồ máy quá 15 giây đều bị từ chối.
+
+Phạm vi kiểm tra bước này: kiểm tra cú pháp JavaScript và diff; chưa chạy kiểm thử luồng hoặc nghiệm thu tích hợp. API chưa có phát hành/thu hồi, relayer, indexer, challenge, tải tài liệu hay xác minh đầy đủ; không tự triển khai lại contract hoặc thay đổi mạng.
+
+### 21.8. Demo nghiệp vụ có giao diện, đồng bộ và dữ liệu trên chain
+
+Mã bổ sung gồm `backend/app.cjs`, `backend/runtime.cjs`, `backend/indexer.cjs`, `database/index.sql` và `web/`. Demo chạy riêng ở `http://127.0.0.1:3002`, giữ API trạng thái cổng 3000 hoạt động độc lập. Không cài dependency mới; dùng ethers sẵn có, Node.js, Docker Compose/psql và `flock` của Linux.
+
+- `node backend/app.cjs setup`: khởi tạo 9 tổ chức, 3 cá nhân, 3 schema qua governance 3/5 và phát hành 9 credential giả trên chain. Tổ chức gồm NTQ/V/M, Đại học C/D/E và Cert-1/2/3. Không reset chain hoặc deploy lại contract.
+- `node backend/app.cjs serve`: giao diện phát hành, cấp/thu hồi consent, tạo/ký challenge, xác minh và thu hồi credential. Chạy ở foreground, dừng bằng Ctrl+C.
+- `node backend/app.cjs index`: đồng bộ event finalized một lần khi server không chạy. Server tự đồng bộ mỗi 15 giây.
+- Kịch bản walkthrough rời đã được xóa theo yêu cầu dọn dự án; giao diện nghiệp vụ được giữ trong container.
+
+Operator token lưu tại `network/pos/.local/business-demo/operator-token`. Session bị giới hạn theo vai trò đã chọn, nhưng người giữ operator token có thể chọn mọi vai trò. Backend giữ ví thử nghiệm để ký: đây là mô phỏng custodial, không phải đăng nhập danh tính production hoặc ví độc lập.
+
+Payload/salt, request và output nhạy cảm được mã hóa AES-256-GCM; khóa, bản mã, raw signed transaction và trạng thái lưu trong `.local/business-demo` được Git bỏ qua. Mỗi tác vụ có idempotency fingerprint; transaction được ký và ghi bền trước khi broadcast. Restart tiếp tục tác vụ giao dịch; không tự dùng lại challenge đã tiêu thụ. Một process ghi trạng thái được bảo vệ bằng `flock`.
+
+Indexer có namespace theo genesis và tập địa chỉ deployment, checkpoint block hash, event chống trùng và tái dựng chỉ mục khi checkpoint không còn khớp. Các bảng mới là `demo_chain_events`, `demo_index_checkpoints` và view `demo_credential_projection`; không xóa seed hay ép dữ liệu on-chain vào các dòng `demo-*` cũ. Quyết định cấp dữ liệu vẫn đọc trực tiếp chain và kiểm tra lại consent/epoch trước khi trả. Output của job xác minh cũ cũng phải qua kiểm tra quyền hiện tại.
+
+Đã thực hiện kịch bản giao dịch thật trên local: phát hành và gửi lặp cùng ID/txHash; consent; kết quả VALID; từ chối sai audience, sai holder và replay; phát hiện payload bị sửa; thu hồi consent chặn truy cập; credential chuyển REVOKED. Chạy lại setup giữ nguyên số hồ sơ đã tạo, indexer đã ghi event finalized. Chưa kiểm thử sự cố crash/reorg cưỡng bức hoặc audit toàn bộ hệ thống; chưa kiểm tra giao diện bằng trình duyệt tự động.
+
+Hướng dẫn chạy hiện tại: [Huong_Dan.md](Huong_Dan.md). Các tài liệu demo rời đã được xóa. Chưa có ví ngoài/đăng nhập production, KMS/object storage phân tán, upload PDF, UI thay thế credential hoặc quản trị tùy ý. Luồng demo hiện dùng schema cố định và dữ liệu hoàn toàn giả.
+
+### 21.9. Chạy trên testnet công khai (Sepolia, Hoodi)
+
+`backend/network-profile.cjs` chọn mạng theo biến `NETWORK_PROFILE`. Mặc định `local` giữ nguyên đường dẫn, chain ID `20261104` và hành vi cũ. Profile khác dùng thư mục riêng `network/pos/.local/networks/<tên>/` (Git bỏ qua) cho bản ghi deployment, khóa hội đồng và trạng thái demo. Mã từ chối các chain ID mainnet đã biết (`MAINNET_NOT_SUPPORTED`).
+
+| Biến | Bắt buộc với profile công khai | Ý nghĩa |
+|---|---|---|
+| `NETWORK_PROFILE` | có | Tên profile, ví dụ `sepolia` |
+| `CHAIN_ID` | có | Sepolia `11155111`, Hoodi `560048`; phải khớp RPC |
+| `RPC_URL` | có | RPC của node riêng hoặc nhà cung cấp; được che khi in lỗi |
+| `DEPLOYER_KEY_FILE` | có | File chứa private key ví deploy đã nạp ETH faucet, quyền `600` |
+| `FUND_COUNCIL_ETH`, `FUND_ACTOR_ETH` | có | Số ETH test cấp cho 5 khóa hội đồng và 12 ví demo |
+| `VERIFIER_URL` | khi xác minh | API Blockscout, ví dụ `https://eth-sepolia.blockscout.com` |
+| `LOG_BLOCK_RANGE` | không | Số block mỗi lần `eth_getLogs` (mặc định 1000; giảm nếu nhà cung cấp giới hạn) |
+
+```bash
+export NETWORK_PROFILE=sepolia CHAIN_ID=11155111 RPC_URL='https://...' \
+  DEPLOYER_KEY_FILE=/đường/dẫn/key FUND_COUNCIL_ETH=0.05 FUND_ACTOR_ETH=0.01
+node network/pos/deploy-contracts.cjs
+VERIFIER_URL=https://eth-sepolia.blockscout.com node network/pos/verify-contracts.cjs
+node backend/app.cjs setup
+node backend/app.cjs serve
+```
+
+Gas đo trên chain local: triển khai 6 contract khoảng 6,7 triệu gas; toàn bộ setup và các giao dịch demo đã chạy khoảng 27,2 triệu gas; mỗi lần phát hành credential khoảng 285 nghìn, cấp consent 336–437 nghìn, thu hồi khoảng 40 nghìn. Ví hội đồng thứ nhất gửi 33 đề xuất (khoảng 9 triệu gas) nên cần nhiều ETH hơn các ví còn lại. Với profile công khai, giao dịch dùng ước tính gas nhân 1,3; giao dịch phụ thuộc giao dịch đang chờ dùng giới hạn dự phòng 1,8 triệu.
+
+Đã diễn tập trên chain local với profile `rehearsal` (chain ID local, ví deploy mới nhận 0,05 ETH): deploy 6 contract, xác minh trên Blockscout local, setup 162 giao dịch, chạy lại setup không gửi thêm giao dịch, walkthrough đủ các nhánh; tổng khoảng 26,1 triệu gas. Số ETH cấp cho ví chỉ đủ khi giá gas thấp: ví hội đồng thứ nhất dùng khoảng 8,6 triệu gas, nên với giá 1 gwei cần khoảng 0,009 ETH, lớn hơn mức 0,005. Tăng `FUND_COUNCIL_ETH` theo giá gas lúc chạy.
+
+Giới hạn: chưa chạy thử trên Sepolia/Hoodi thật. Giao dịch đã ký được lưu với phí tại thời điểm ký; nếu base fee tăng mạnh, giao dịch có thể kẹt và chưa có cơ chế tăng phí thay thế. Mọi calldata và event trên testnet công khai đều ai cũng đọc được; chỉ dùng dữ liệu giả. Không dùng cấu hình này cho mainnet.
+
+### 21.10. Nâng cấp vận hành và kết quả xác minh ngày 10/11/2026
+
+Mục này cập nhật hiện trạng sau các mục 21.3, 21.7–21.9; không thay đổi thiết kế nghiệp vụ hoặc deployment contract.
+
+- Hai backend dùng Node 24.22.2 LTS qua `./backend/node`; cài runtime riêng bằng `python3 backend/install-runtime.py`, có kiểm tra SHA-256 bản tải chính thức. Node của hệ điều hành giữ nguyên.
+- Blockscout backend chuyển từ mọi giao diện sang `127.0.0.1:4000`. Các image frontend/verifier/nginx được cố định theo digest. Dora và Blockscout tiếp tục hoạt động tại cổng 8080/8081.
+- API 3000 đọc `demo_credential_projection` theo namespace deployment cho ID bytes32, seed `demo-*` vẫn được tách biệt. API không dùng index để quyết định quyền hoặc kết luận VALID.
+- `REVIEW_REQUIRED` không kèm payload được trả đúng cho chủ job. Cấp lại payload vẫn cần consent, epoch, challenge, trạng thái credential và chính sách issuer hiện tại. Thiếu schema hỗ trợ trả INDETERMINATE. Hồ sơ thu hồi/thay thế/hết hạn được trả trạng thái riêng khi người yêu cầu có consent và bằng chứng chủ thể phù hợp, không giải mã nội dung.
+- Tác vụ giao dịch có WAITING/backoff và tiếp tục dùng cùng signed transaction; không tự tăng phí. Đọc snapshot không chờ hàng đợi ghi. Receipt được đối soát canonical; lịch sử xác minh ghi rõ thời điểm và finality latest.
+- Thêm logout, giới hạn đăng nhập, health API; thiếu khóa khi setup dở dang yêu cầu phục hồi thay vì sinh khóa khác. Sửa dừng server qua `flock --no-fork`.
+- API 3000 dùng token mới tại `.local/status-api-token`, hoặc `API_TOKEN_FILE`/`API_TOKEN`; operator token 3002 và các khóa nghiệp vụ giữ nguyên. Backup nghiệp vụ trước chuyển runtime ở `.local/backups/upgrade-*/business-demo`.
+- Chỉ hỗ trợ chain local, Sepolia và Hoodi qua danh sách cho phép. Chưa chạy trên testnet công khai trong đợt nâng cấp này.
+
+Đã qua 19 kiểm tra hồi quy cô lập trong đợt nâng cấp (file kiểm tra đã được dọn); đã chạy lại walkthrough bằng một credential giả mới và thu hồi riêng hồ sơ đó. Health hai API đạt, projection được đọc đúng, các cổng backend giới hạn loopback. Không thay genesis, không deploy lại contract và không thu hồi hồ sơ có sẵn. Chưa nghiệm thu crash/reorg cưỡng bức, ví độc lập, KMS, lưu nghiệp vụ bằng transaction PostgreSQL hoặc vận hành nhiều máy. Hướng dẫn vận hành hiện tại: `Huong_Dan.md`. File kiểm tra và báo cáo testcase đã được xóa sau đợt dọn dự án.
+
+
+### 21.11. Hợp nhất vận hành vào một container
+
+Theo yêu cầu ngày 10/11/2026, toàn bộ mạng Besu/Teku, PostgreSQL nghiệp vụ và chỉ mục, hai API, giao diện, Dora, Blockscout và verifier được đóng gói trong image `besu-system:local`. Compose duy nhất ở gốc repository tạo container `besu-system` và volume `besu-system-data`. Chạy `docker compose up -d`, những lần sau có thể dùng `docker start besu-system`.
+
+Dữ liệu hiện có được chuyển vào volume `/data`; giữ nguyên genesis, deployment, khóa, token và hồ sơ. Image chứa mã và runtime, không chứa dữ liệu riêng tư. Container tự thiết lập mạng và dữ liệu mẫu nếu dùng volume mới; khởi động lại volume cũ không tạo lại chain. Các cổng công khai trên localhost: 3002 (ứng dụng), 3000 (API trạng thái), 8080 (Dora), 8081 (Blockscout).
+
+Mã nghiệp vụ đổi tên từ `demo-*` sang `app.cjs`, `runtime.cjs`, `indexer.cjs`, `policy.cjs`; migration chỉ mục thành `database/index.sql`. Tên lưu trữ và miền chữ ký cũ vẫn giữ nguyên để không làm mất khả năng đọc/xác minh dữ liệu. Đã bỏ tài liệu demo, walkthrough, file kiểm tra nâng cấp và kết quả testcase; không xóa tài liệu đặc tả hay hợp đồng nghiệp vụ.
+
+Các lệnh chạy nhiều dịch vụ ở mục 21.3–21.10 ghi lại quá trình phát triển. Sử dụng [Huong_Dan.md](Huong_Dan.md) cho cách chạy hiện hành; không khởi động các bản dịch vụ cũ cùng lúc với container.
+
+
+### 21.12. Phân phối qua GitHub và chạy từ clone sạch
+
+Mã vận hành được đưa lên nhánh `Network`. Clone bằng `git clone --branch Network --single-branch https://github.com/Phong-pt/Besu-Private.git`, sau đó chạy `docker compose up -d --build` trong thư mục clone. Dockerfile lấy nguồn công khai được ghim: Besu 26.10.2, Teku commit `715545a182748b959540bfceee12286e058ca49d`, Temurin Java 25, Node 24.22.2, Dora 1.25.0 và các image Blockscout/PostgreSQL theo digest. Hai archive được kiểm tra SHA-256 trước khi dùng.
+
+Không cần `.env` hoặc bộ runtime từ máy phát triển. Volume mới tự sinh khóa, token, mật khẩu và triển khai dữ liệu mẫu riêng. Repository không chứa dữ liệu chain, tài liệu mã hóa, khóa, secret, password, snapshot database hoặc báo cáo testcase của máy hiện tại. Hướng dẫn hiện hành: [Huong_Dan.md](Huong_Dan.md).
